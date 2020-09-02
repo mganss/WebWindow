@@ -42,7 +42,7 @@ private:
 	static HINSTANCE _hInstance;
 	HWND _hWnd;
 	WebWindow* _parent;
-	wil::com_ptr<IWebView2Environment> _webviewEnvironment;
+	wil::com_ptr<IWebView2Environment3> _webviewEnvironment;
 	wil::com_ptr<IWebView2WebView5> _webviewWindow;
 	std::map<std::wstring, WebResourceRequestedCallback> _schemeToRequestHandler;
 	void AttachWebView();

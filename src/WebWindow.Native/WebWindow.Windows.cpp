@@ -36,7 +36,7 @@ void WebWindow::Register(HINSTANCE hInstance)
 {
 	_hInstance = hInstance;
 
-	// Register the window class	
+	// Register the window class
 	WNDCLASSW wc = { };
 	wc.lpfnWndProc = WindowProc;
 	wc.hInstance = hInstance;
@@ -208,99 +208,87 @@ void WebWindow::AttachWebView()
 
 	HRESULT envResult = CreateWebView2EnvironmentWithDetails(nullptr, nullptr, nullptr,
 		Callback<IWebView2CreateWebView2EnvironmentCompletedHandler>(
-			[&, this](HRESULT result, IWebView2Environment* env) -> HRESULT
-	{
-		_webviewEnvironment = env;
-
-		// Create a WebView, whose parent is the main window hWnd
-		env->CreateWebView(_hWnd, Callback<IWebView2CreateWebViewCompletedHandler>(
-			[&, this](HRESULT result, IWebView2WebView* webview) -> HRESULT
-		{
-			if (webview != nullptr)
-			{
-				_webviewWindow = static_cast<IWebView2WebView5*>(webview);
-			}
-
-			// Add a few settings for the webview
-			// this is a redundant demo step as they are the default settings values
-			IWebView2Settings* Settings;
-			_webviewWindow->get_Settings(&Settings);
-			Settings->put_IsScriptEnabled(TRUE);
-			Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
-			Settings->put_IsWebMessageEnabled(TRUE);
-
-			// Register interop APIs
-			EventRegistrationToken webMessageToken;
-			_webviewWindow->AddScriptToExecuteOnDocumentCreated(L"window.external = { sendMessage: function(message) { window.chrome.webview.postMessage(message); }, receiveMessage: function(callback) { window.chrome.webview.addEventListener(\'message\', function(e) { callback(e.data); }); } };", nullptr);
-
-			_webviewWindow->add_WebMessageReceived(Callback<IWebView2WebMessageReceivedEventHandler>(
-				[this](IWebView2WebView* webview, IWebView2WebMessageReceivedEventArgs* args) -> HRESULT
-			{
-				wil::unique_cotaskmem_string message;
-				args->get_WebMessageAsString(&message);
-				_webMessageReceivedCallback(message.get());
-				return S_OK;
-			}).Get(), &webMessageToken);
-
-			EventRegistrationToken webResourceRequestedToken;
-			_webviewWindow->AddWebResourceRequestedFilter(L"*", WEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-
-			_webviewWindow->add_WebResourceRequested(
-				Callback<IWebView2WebResourceRequestedEventHandler>(
-					[this](IWebView2WebView* sender, IWebView2WebResourceRequestedEventArgs* args)
-			{
-				IWebView2WebResourceRequest* req;
-				args->get_Request(&req);
-
-				wil::unique_cotaskmem_string uri;
-				req->get_Uri(&uri);
-				std::wstring uriString = uri.get();
-				size_t colonPos = uriString.find(L':', 0);
-
-				if (colonPos > 0)
+			[&, this](HRESULT result, IWebView2Environment* env) -> HRESULT {
+				HRESULT envResult = env->QueryInterface(&_webviewEnvironment);
+				if (envResult != S_OK)
 				{
-					std::wstring scheme = uriString.substr(0, colonPos);
-					WebResourceRequestedCallback handler = _schemeToRequestHandler[scheme];
-
-					if (handler != NULL)
-					{
-						int numBytes;
-
-						AutoString contentType;
-
-						wil::unique_cotaskmem dotNetResponse(handler(uriString.c_str(), &numBytes, &contentType));
-
-						if (dotNetResponse != nullptr && contentType != nullptr)
-						{
-							std::wstring contentTypeWS = contentType;
-
-							IStream* dataStream = SHCreateMemStream((BYTE*)dotNetResponse.get(), numBytes);
-
-							wil::com_ptr<IWebView2WebResourceResponse> response;
-
-							_webviewEnvironment->CreateWebResourceResponse(
-								dataStream, 200, L"OK", (L"Content-Type: " + contentTypeWS).c_str(), &response);
-
-							args->put_Response(response.get());
-						}
-					}
+					return envResult;
 				}
 
+				// Create a WebView, whose parent is the main window hWnd
+				env->CreateWebView(_hWnd, Callback<IWebView2CreateWebViewCompletedHandler>(
+					[&, this](HRESULT result, IWebView2WebView* webview) -> HRESULT {
+						if (result != S_OK) { return result; }
+						result = webview->QueryInterface(&_webviewWindow);
+						if (result != S_OK) { return result; }
+
+						// Add a few settings for the webview
+						// this is a redundant demo step as they are the default settings values
+						IWebView2Settings* Settings;
+						_webviewWindow->get_Settings(&Settings);
+						Settings->put_IsScriptEnabled(TRUE);
+						Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
+						Settings->put_IsWebMessageEnabled(TRUE);
+
+						// Register interop APIs
+						EventRegistrationToken webMessageToken;
+						_webviewWindow->AddScriptToExecuteOnDocumentCreated(L"window.external = { sendMessage: function(message) { window.chrome.webview.postMessage(message); }, receiveMessage: function(callback) { window.chrome.webview.addEventListener(\'message\', function(e) { callback(e.data); }); } };", nullptr);
+						_webviewWindow->add_WebMessageReceived(Callback<IWebView2WebMessageReceivedEventHandler>(
+							[this](IWebView2WebView* webview, IWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+								wil::unique_cotaskmem_string message;
+								args->get_WebMessageAsString(&message);
+								_webMessageReceivedCallback(message.get());
+								return S_OK;
+							}).Get(), &webMessageToken);
+
+						EventRegistrationToken webResourceRequestedToken;
+						_webviewWindow->AddWebResourceRequestedFilter(L"*", WEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+						_webviewWindow->add_WebResourceRequested(Callback<IWebView2WebResourceRequestedEventHandler>(
+							[this](IWebView2WebView* sender, IWebView2WebResourceRequestedEventArgs* args)
+							{
+								IWebView2WebResourceRequest* req;
+								args->get_Request(&req);
+
+								wil::unique_cotaskmem_string uri;
+								req->get_Uri(&uri);
+								std::wstring uriString = uri.get();
+								size_t colonPos = uriString.find(L':', 0);
+								if (colonPos > 0)
+								{
+									std::wstring scheme = uriString.substr(0, colonPos);
+									WebResourceRequestedCallback handler = _schemeToRequestHandler[scheme];
+									if (handler != NULL)
+									{
+										int numBytes;
+										AutoString contentType;
+										wil::unique_cotaskmem dotNetResponse(handler(uriString.c_str(), &numBytes, &contentType));
+
+										if (dotNetResponse != nullptr && contentType != nullptr)
+										{
+											std::wstring contentTypeWS = contentType;
+
+											IStream* dataStream = SHCreateMemStream((BYTE*)dotNetResponse.get(), numBytes);
+											wil::com_ptr<IWebView2WebResourceResponse> response;
+											_webviewEnvironment->CreateWebResourceResponse(
+												dataStream, 200, L"OK", (L"Content-Type: " + contentTypeWS).c_str(),
+												&response);
+											args->put_Response(response.get());
+										}
+									}
+								}
+
+								return S_OK;
+							}
+						).Get(), &webResourceRequestedToken);
+
+						RefitContent();
+
+						flag.clear();
+						return S_OK;
+					}).Get());
 				return S_OK;
 
-			}).Get(), &webResourceRequestedToken);
-
-			RefitContent();
-
-			flag.clear();
-
-			return S_OK;
-
 		}).Get());
-
-		return S_OK;
-
-	}).Get());
 
 	if (envResult != S_OK)
 	{
