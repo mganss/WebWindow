@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Routing;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -82,15 +83,12 @@ namespace WebWindows.Blazor
             }
         }
 
+        static FileExtensionContentTypeProvider ContentTypeProvider = new FileExtensionContentTypeProvider();
+
         private static string GetContentType(string url)
         {
-            var ext = Path.GetExtension(url);
-            switch (ext)
-            {
-                case ".html": return "text/html";
-                case ".css": return "text/css";
-                case ".js": return "text/javascript";
-            }
+            if (ContentTypeProvider.TryGetContentType(url, out var contentType))
+                return contentType;
             return "application/octet-stream";
         }
 
